@@ -1,5 +1,3 @@
-> 
->
 > 首先，如果需要真正深入了解jvm的内部情况，可以登录java的官网下载对应版本的[规范](https://docs.oracle.com/javase/specs/index.html "规范")，可下载对应的pdf文件做详细了解。也可以阅读《深入理解Java虚拟机：JVM高级特性与最佳实践》。
 
 > 本文主要为读者描绘jvm的大致情况，方便读者在之后的学习中有方向性地了解更细节的内容。主要基于当前常用的JAVA8。
@@ -267,10 +265,10 @@ OOP-Klass导致了在hotspot的底层上，调用实例的过程实际上是先�
 
 ```mermaid
 graph LR
-serial(Serial)----|X JDK9|CMS(CMS)
+serial(Serial)----|<font Color=Red>X</font> JDK9|CMS(CMS)
 serial----serialold(Serial Old)
 CMS----serialold
-parnew(ParNew)----|X JDK9|serialold
+parnew(ParNew)----|<font Color=Red>X</font> JDK9|serialold
 parnew----CMS
 paralleS(Parallel Scavenge) ----serialold
 parallO(Parallel Old)----paralleS
@@ -280,17 +278,110 @@ parallO(Parallel Old)----paralleS
 上图中，相连的双方代表可以组合使用。（部分是在JDK9及之后被废弃）
 
 - 传统
-  - Serial：
-  - ParNew
-  - Parallel Scavenge
-  - Serial Old
-  - Parallel Old
-- CMS
-- G1
+  - Serial：单线程，且必须暂停其它工作线程【Stop The World (STW)】，主要应用与新生代。
+    - 不先进，但资源要求小。在小规模环境下使用较好。
+  
+  ```mermaid
+  sequenceDiagram
+  	autonumber
+      用户线程->>safePoint1: 运行
+      safePoint1->>GC线程: (暂停其它线程STW) 对新生代采用复制清除算法
+      GC线程->>用户线程: 结束STW
+      用户线程-->>safePoint2:运行
+    	safePoint2-->>GC线程: STW, 对老年代采用标记整理算法
+  ```
+  
+  
+
+<center>Serial/Serial Old示意图</center>
+
+- ParNew【简称PN】：多线程并行版Serial
+
+$$
+吞吐量=\frac{用户代码运行时间}{用户代码运行时间+垃圾收集时间}
+$$
+
+
+
+- Parallel Scavenge【简称PS】：多线程的新生代收集器。可设定吞吐量相关的参数。
+- Serial Old【简称SO】：单线程，使用标记整理算法，主要用于老年代。
+  - 可作为CMS失败时的后备方案
+  - Paralle Scavenge内部具有PS MarkSweep收集器进行老年代收集，这一收集器的实现本质上与SO相同。【JDK5及之前】，讲解是说PS与SO组合使用。
+
+- Parallel Old【简称PO】：Parallel Scavenge的老年代版本，多线程，标记整理算法。【JDK6伊始】。常常优先考虑PS-PO组合
+
+- CMS(Concurrent-Marking-Sweep)：着重于低延迟，多线程并发，老年代，标记清除算法。
+
+  ```mermaid
+  sequenceDiagram
+  	autonumber
+      用户线程->>safePoint1:运行
+      safePoint1->>safePoint2:STW，初始标记
+      safePoint2-->>用户线程:结束STW
+      用户线程->>safePoint3:运行，并发标记
+      safePoint3->>safePoint4:STW，重新标记
+      safePoint4-->>用户线程:结束STW
+      用户线程->>safePoint5:运行，并发清理
+  ```
+
+  - 初始标记：仅标记根节点
+  - 并发标记：正常的从根节点向下遍历，由于此时用户线程不停止，导致结果与最后实际情况有误差
+  - 重新标记：为修正误差，停止用户线程并修正结果
+  - 并发清除：收集死亡对象
+
+  > 默认的回收线程数为$\frac{CPU核心数+3}{4}$
+  >
+  > 核心数较少时，反而影响实际程序性能。
+  >
+  > - 增量式并发收集器：（JDK7就已经不提倡）效果一般，类似多任务抢占式运行，利用有限的线程交替执行不同任务，运行反而更慢。
+
+  > CMS激活，JDK5默认老年代空间到达68%，JDK9默认92%。老年代必须预留一定空间共回收进程使用。否则将并发失败，需冻结用户进程，并启用Serial Old。
+
+- G1：JDK9及之后的默认。一定程度上是CMS的继承者。可收集堆内存任意区域。
+
+  - Region：G1将Java的堆划分为多个独立等大的区域【是垃圾回收的最小单位】，让这些区域根据需要充当Eden或老年代等角色【实际仍然是分代收集算法】
+    - Humongous：存储大对象【超过Region容量的一半】，超过整个Region容量的对象为超级大对象，将存放在多个Humongous中。
+    - Region大小可通过-XX:G1HeapRegionSize设置，范围为1MB~32MB，2的次幂。
+  - G1中已没有传统的新生代和老年代。而是将所有的Region区域按照回收空间大小以及回收时间设定优先级并进行排列，有效地提高了垃圾回收的效率。
+  -   Region也需要维护自己的卡表，G1的卡表同时记录了两种形式，我被谁引用了以及我引用了谁
+    - 这里的卡表是一种哈希表，键值对应指向对象的Region地址，value包含其中对象所在的索引。
+    - 由于设置的卡表较多，导致G1需要相对较多的空间存储这些信息
+  - TAMS(Top at Mark Start)，Region中包含两个TAMS(pre,next)，pre对应的是在垃圾回收时，该区域内上次扫描开始的位置，next代表这次扫描开始的位置。【则区域内处于TAMS另一侧的】
+
+  G1的大致操作如下：
+
+  1. 初始标记：标记根节点
+  2. 并发标记：递归扫描做可达性分析
+  3. 最终标记：对结果做修正
+  4. 筛选回收：【整体上标记整理算法，局部是标记复制算法】首先，根据回收价值和成本，以及用户期望的停顿时间，选择需要回收的区域，将这些Region中存活的对象复制到其它的空Region中，才将原有的Region整体清空。多条收集器线程并行执行。
+
+  ```mermaid
+  sequenceDiagram
+  	autonumber
+  	用户线程->> safePoint1:运行
+  	safePoint1->> safePoint2:STW，初始标记
+  	safePoint2-->> 用户线程:结束STW
+  	用户线程->>safePoint3:运行，并发标记
+  	safePoint3->>最终标记:STW
+  	Note over 筛选回收: 多回收线程并行
+  	最终标记->> 筛选回收:STW
+  ```
+
+  
+
 - 低延迟
-  - ZGC
-  - shenandoah
+  - ZGC：基于Page或ZPage（相当于Region）的堆内存布局，但这里的Region根据动态性，可动态创建和销毁，并且有不同型号的容量。采用了==染色指针技术==进行标记。
+    - 运作过程为：并发标记、并发预备重分配、并发重分配、并发重映射
+  - shenandoah：目前，这一回收器似乎还是只有OpenJDK支持，而Oracle是故意反对的【不是sun自己做的】。
+    - 从代码上看是对G1的继承者。均使用Region概念，以及相同的回收策略。不同点主要在于：
+      - 支持了并发的整理算法，可与用户线程并发执行
+      - 默认不使用分代收集
+      - 废弃了记忆集，而是用连接矩阵记录引用关系
+    - 步骤阶段为：初始标记、==并发标记==、最终标记、==并发清理==、==并发回收==、初始引用更新、最终引用更新、==并发清理==
+
 - Epsilon
+
+
 
 ### 7. Class文件结构
 
@@ -606,7 +697,9 @@ cmd 查看jvm调优参数:主要以—X或-XX开头的命令。
 
 【可通过命令-XX:MaxTenuringThreshold配置指定次数】（Parallel Scanvenge 15,CMS 6,G1 15)
 
-### 12. 多线程环境的JVM
+Parallel Scavenge 吞吐量参数
+
+### 12. 多线程或并发环境的JVM
 
 #### 12.1 对象创建
 
