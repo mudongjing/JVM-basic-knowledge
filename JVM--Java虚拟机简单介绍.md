@@ -490,30 +490,42 @@ class文件包含的主要内容有：
 
 对象在堆内存的存储布局为：对象头（header），实例数据（Instance Data），对齐填充（Padding）。
 
-|      |      |      |
-| ---- | ---- | ---- |
-|      |      |      |
-|      |      |      |
-|      |      |      |
+其中对象头中包含了mark word和元数据指针。
 
+mark word中可以包含大量信息，如锁状态，GC年龄。且占用的空间位数与相应的CPU处理位数相同。
 
+32位情况：
 
-```mermaid
-graph BT
-mark(Mark Word)-->header(header) 
- style header fill:#f9f,stroke:#333,stroke-width:4px
-meta(元数据指针)--> header
-meta-->方法区中目标类的类型信息
+<table border="1" cellspacing="0" width="50%" height="150">
+<tr><th rowspan="2">锁状态</th><th colspan="2">25bit</th> <th rowspan="2">4bit</th><th>1bit</th> <th>2bit</th></tr>
+<tr><td>23bit</td> <td>2bit</td><td>是否偏向锁</td><td>锁标志位</td></tr>
+<tr>
+    <td>无锁状态</td>
+    <td colspan="2">对象的hashcode</td><td>分代年龄</td><td>0<td>01</td>
+</tr>
+<tr>
+	<td>轻量级锁</td><td colspan="4">指向栈中锁记录的指针</td><td>00</td>
+</tr>
+<tr>
+<td>重量级锁</td><td colspan="4">指向互斥量(重量级锁)的指针</td><td>10</td>
+</tr>
+<tr>
+<td>GC标记</td><td colspan="4">空</td><td>11</td>
+</tr>
+<tr>
+<td>偏向锁</td><td>线程ID</td><td>Epoch</td><td>分代年龄</td><td>1</td><td>01</td>
+</tr>
+</table>
 
-```
+64位情况：
 
-
+![](http://p2pworker.xyz/wp-content/uploads/2021/06/markword64.png)
 
 #### 9.2 指针压缩
 
 64位过长，给我们寻址带宽和对象内引用造成了负担
 
-什么负担？往下看！
+什么负担？往下看！ 
 
 同一个对象存在堆里会花费更多的空间！！！！
 
