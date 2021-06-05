@@ -872,6 +872,31 @@ Parallel Scavenge 吞吐量参数
 
 在利用卡表标记了对象之间存在引用关系之后，借助卡表就可以快速地对引用链进行遍历。但由于此时用户进程也在继续，则需要三色标记来判断对象的存活状态。
 
+- 三色标记
+
+  扫描是自上而下不断递归深入地进行。
+
+```mermaid
+graph TD
+	id0(<font color=white>上下均已扫描</font>)-->id1
+	id1(<font color=white>上下均已扫描</font>)-->id2(<font color=white>下面未扫描</font>)
+    style id1 fill:#000000
+    style id0 fill:#000000
+    style id2 fill:#9b9b9b,stroke:#9b9b9b
+    id2-->id3(自己未被扫描)
+    style id3 fill:#ffffff
+    style id4 fill:#ffffff
+    style id5 fill:#ffffff
+    style id6 fill:#ffffff
+    id6(自己未被扫描)
+    id0--新插入-->id4(自己未被扫描)
+    id2-.删除.->id5(自己未被扫描)
+    id5-->id6
+    id2-.删除.->id6
+    
+    
+```
+
 
 
 
