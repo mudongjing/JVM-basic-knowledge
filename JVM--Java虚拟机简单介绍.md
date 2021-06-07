@@ -189,7 +189,9 @@ id6-->|NO|id7{对象是否过大且超过阈值}
 id7-->|YES|id8(分配到Eden)
 id7-->|NO|分配到TLAB
 id8-->id9[发生垃圾回收]
-id9-->id10(转移到S0或S1)
+id9-->tuichu{实例是否结束}
+tuichu-->|仍存活|id10(转移到S0或S1)
+tuichu-->|已结束|回收其内存
 id10-->idman(S0或S1内存已满)
 idman-->id12
 id10-->id90(发生垃圾回收)
